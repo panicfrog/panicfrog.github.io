@@ -316,7 +316,7 @@ open class BloomFilter {
         var hashValues = [Int]()
         let data = string.data(using: .utf8)!
         for i in 0..&lt;self.hashCount {
-            let hash = MurmurHash3.sum32(data, seed: self.seed + UInt32(i))
+            let hash = MurmurHash3.sum32(data, seed: self.seed &amp;+ UInt32(i))
             let index = abs(Int(hash)) % self.bits.count
             hashValues.append(index)
         }
