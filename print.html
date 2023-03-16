@@ -244,7 +244,7 @@
 </div></li>
 </ol>
 <h2 id="实现"><a class="header" href="#实现">实现：</a></h2>
-<p>最后是我使用swift实现的一个布隆过滤器</p>
+<p>然后是我使用swift实现的一个布隆过滤器</p>
 <pre><code class="language-swift">import Foundation
 
 fileprivate func optimalK(m: Int, n: Int) -&gt; Int {
@@ -326,7 +326,102 @@ open class BloomFilter {
 
 </code></pre>
 <h2 id="性能分析"><a class="header" href="#性能分析">性能分析</a></h2>
-<p>在swift中一个Bool类型占一个字节。假定我们元素的总数量是1万个。使用代码中默认的的m/n的比例24，总共需要24*1e4 byte = 234.375 KB</p>
+<p>在swift中一个Bool类型占一个字节。假定我们元素的总数量是1万个。使用代码中默认的的m/n的比例24，总共需要24*1e4 byte = 234.375 KB。这个数量级的数据只用了200多KB的内存已经很好了。</p>
+<p>但是我们回头思考一下是否有更优的方案呢？我们注意到一个Bool类型是占1个字节的，表示true和false两个值。如果只需要表示两个值。我们只需要一个比特位就行了0和1，那么一个字节拆成八个布尔值。确定了方案我们看一下优化后的代码实现</p>
+<pre><code class="language-swift">import Foundation
+
+@inline(__always)
+func ceil64(_ v: Int) -&gt; Int {
+  (v + 63) &gt;&gt; 6
+}
+
+fileprivate func optimalK(m: Int, n: Int) -&gt; Int {
+  let _m = Double(m)
+  let _n = Double(n)
+  let k = _m / _n * M_LN2
+  let ck = Int(ceil(k))
+  let fk = Int(floor(k))
+  let ckf = falsePositiveProbability(m: m, n: n, k: ck)
+  let fkf = falsePositiveProbability(m: m, n: n, k: fk)
+  return ckf &gt; fkf ? fk : ck
+}
+
+fileprivate func falsePositiveProbability(m: Int, n: Int, k: Int) -&gt; Double {
+  let _k = Double(k)
+  let _n = Double(n)
+  let _m = Double(m)
+  let f = pow(1.0 - exp(-_k * _n / _m), _k)
+  return f
+}
+
+open class BloomFilter {
+  private var bits: [UInt64]
+  private var bitsCount: Int
+  private let hashCount: Int
+  private let seed: UInt32
+  
+  // m/n 最优比例（平衡误报率和内存占用）9.8385e-6 &lt; 1e-5
+  public static let mnRate1e_5 = 24
+  private static let UINT64_BITS: Int = 64
+  
+  /// init function
+  /// - Parameters:
+  ///   - maxElements: maximum capacity
+  ///   - seed: hash seed
+  ///   - rate: rate of bit to maximum capacity
+  public init(maxElements: Int, seed: UInt32 = 0, rate: Int = mnRate1e_5) {
+    let n = maxElements
+    let m = n * rate
+    let k = optimalK(m: m, n: n)
+    //        print(&quot;optimal K \(k)&quot;)
+    self.bits = Array(repeating: 0, count: ceil64(m))
+    self.hashCount = k
+    self.bitsCount = m
+    self.seed = seed
+  }
+  
+  
+  @inline(__always)
+  private func locationIndex(_ value: Int) -&gt; (location: Int, index: Int) {
+    return (location: value / BloomFilter.UINT64_BITS, index: value % BloomFilter.UINT64_BITS)
+  }
+  
+  /// add to bloom filter
+  open func add(_ element: String) {
+    let locations = self.hashValues(element)
+    for location in locations {
+      let (lct, idx) = locationIndex(location)
+      self.bits[lct] = self.bits[lct] | 1 &lt;&lt; idx
+    }
+  }
+  
+  /// if the value is in the bloom filter
+  /// - Parameter string: value
+  /// - Returns: result
+  open func contains(_ element: String) -&gt; Bool {
+    let hashes = self.hashValues(element)
+    for hash in hashes {
+      let (lct, idx) = locationIndex(hash)
+      if self.bits[lct] &amp; 1 &lt;&lt; idx == 0 {
+        return false
+      }
+    }
+    return true
+  }
+  
+  private func hashValues(_ string: String) -&gt; [Int] {
+    var hashValues = [Int]()
+    let data = string.data(using: .utf8)!
+    for i in 0..&lt;self.hashCount {
+      let hash = MurmurHash3.sum32(data, seed: self.seed &amp;+ UInt32(i))
+      let index = abs(Int(hash)) % self.bitsCount
+      hashValues.append(index)
+    }
+    return hashValues
+  }
+}
+</code></pre>
+<p>优化之后的代码使用一个UInt64表示64个位置。那么一万个元素的布隆过滤器， 使用代码中默认的的m/n的比例24，占用的空间为 24 * 1e4 * 8 / 64  bytes = 3e4 bytes = 29.30 KB。我们使用不到30KB的空间就保存了一万个元素。</p>
 
                     </main>
 
